@@ -1,0 +1,4 @@
+.idea
+node_modules
+.env
+deepspeech-0.9.3-models

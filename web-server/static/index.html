@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Speech To Text</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Edu+SA+Beginner&family=Open+Sans&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Open Sans',serif;
+            display: flex;
+            justify-content: center;
+        }
+
+        .status {
+            color: white;
+            padding: 0 5px 2px 5px;
+            border-radius: 3px;
+            opacity: 0.8;
+            background: gray;
+        }
+
+        .status.disconnected {
+            background: red;
+        }
+
+        .status.listening {
+            background: green;
+        }
+
+        .status.silence {
+            background: teal;
+        }
+
+        .status.connected {
+            background: teal;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+        }
+
+        .content {
+            width: 100%;
+            margin: 10px;
+            max-width: 500px;
+        }
+
+        .select-source label {
+            display: block;
+        }
+
+        .select-source select {
+            width: 100%;
+        }
+
+        .text {
+            font-family: 'Edu SA Beginner',serif;
+            border: 1px solid #000;
+            margin-top: 10px;
+            height: 50vh;
+            min-height: 250px;
+            overflow-y: scroll;
+            padding: 14px 12px 14px 12px;
+            font-size: 20px;
+        }
+
+        .controls {
+            display: flex;
+        }
+
+        .controls > div {
+            margin: 10px;
+        }
+
+        #audio-text {
+            font-family: monospace;
+            color: #dc143c;
+        }
+
+        #audio-text-intermediate {
+            color: #979797;
+        }
+
+        .pointer-events-none {
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="content">
+        <div class="header">
+            <div :class="['status', status]">{{ status }}</div>
+
+            <div id="audio-text">{{ audioGraph.join('') }}</div>
+            <div class="controls-btn" v-if="isActive !== null">
+                <button type="button" v-if="isActive" @click="handleStop">Stop</button>
+                <button type="button" v-else @click="handleStart">Start</button>
+            </div>
+            <div class="controls-btn" v-else>Loading...</div>
+        </div>
+
+        <div class="text" ref="textEl">
+            <span v-for="s in section">{{s}}
+                <span>
+                    <a href="#" @click.prevent="gpt(s, 'helloforefront')">HF</a>&nbsp;&nbsp;
+                    <a href="#" @click.prevent="gpt(s, 'textsynth')">TS</a>&nbsp;&nbsp;
+                    <a href="#" @click.prevent="gpt(s, 'both')">BOTH</a>
+                </span>
+                <hr/>
+                <br>
+            </span>
+            <span v-html="text"></span>&nbsp;<span id="audio-text-intermediate">{{ textIntermediate }}</span>
+        </div>
+
+        <div :class="['controls', isActive !== false ? 'pointer-events-none' : null]">
+            <div class="select-source">
+                <label for="source">Audio Source</label>
+                <select id="source" v-model="options.source">
+                    <option :value="device.id" :key="device.id" v-for="device in devices">{{ device.name }}</option>
+                </select>
+            </div>
+
+            <div class="select-vad-mode">
+                <label for="vad-mode">Vad Mode</label>
+                <select id="vad-mode" v-model="options.vadMode">
+                    <option :value="0">NORMAL</option>
+                    <option :value="1">LOW_BITRATE</option>
+                    <option :value="2">AGGRESSIVE</option>
+                    <option :value="3" selected>VERY_AGGRESSIVE</option>
+                </select>
+            </div>
+
+            <div class="input-silence-threshold">
+                <label for="silence-threshold">Silence Threshold</label>
+                <input type="number" id="silence-threshold" v-model="options.silenceThreshold">
+            </div>
+        </div>
+
+        <div>
+            <button @click="addNewSection">Add Section</button>
+        </div>
+    </div>
+</div>
+
+<script src="vue.global.js"></script>
+<script src="reconnecting-websocket.min.js"></script>
+<script>
+    const { createApp } = Vue
+
+    const app = createApp({
+        data() {
+            return {
+                status: 'disconnected',
+                audioGraph: [],
+                isActive: false,
+                loading: false,
+                devices: [],
+                options: {
+                    source: '',
+                    vadMode: 3,
+                    silenceThreshold: 200
+                },
+                section: [],
+                text: '',
+                textIntermediate: '',
+            }
+        },
+        watch: {
+            textIntermediate() {
+                this.scrollTextEl()
+            },
+            text() {
+                this.scrollTextEl()
+            },
+            textPunctuated() {
+                this.scrollTextEl()
+            }
+        },
+        methods: {
+            handleStart() {
+                this.isActive = null
+                send('start', this.options)
+                localStorage.setItem('options', JSON.stringify(this.options))
+                localStorage.setItem('isActive', '1')
+            },
+            handleStop() {
+                this.isActive = null
+                send('stop')
+                localStorage.setItem('isActive', '0')
+            },
+            scrollTextEl() {
+                if (!this.$refs.textEl) {
+                    return
+                }
+
+                this.$refs.textEl.scrollTop = this.$refs.textEl.scrollHeight;
+            },
+            addNewSection() {
+                this.section.push(this.text)
+                this.text = '';
+                this.scrollTextEl()
+            },
+            gpt(text, site) {
+                const sites = {
+                    'helloforefront': 'https://playground.helloforefront.com/',
+                    'textsynth': 'https://textsynth.com/playground.html',
+                }
+                navigator.clipboard.writeText(text);
+
+                if (site === 'both') {
+                    this.openUrlInNewTab(sites.helloforefront)
+                    this.openUrlInNewTab(sites.textsynth)
+                } else {
+                    this.openUrlInNewTab(sites[site])
+                }
+            },
+            openUrlInNewTab(url) {
+                const a = document.createElement('a');
+                a.target = '_blank';
+                a.href = url;
+                a.click();
+            }
+        },
+        mounted() {
+
+        }
+    }).mount('#app')
+</script>
+
+<script> /* Websocket */
+    const ws = new ReconnectingWebSocket('ws://127.0.0.1:6272')
+    ws.onopen = _ => {
+        console.log("Connection established");
+        app.status = 'connected'
+
+        fetch('http://127.0.0.1:6272/status')
+            .then(res => res.json())
+            .then(data => {
+                app.devices = data.devices
+                app.isActive = data.isActive
+
+                if (data.isActive) {
+                    app.options = data.options
+                } else {
+                    loadSettings()
+                }
+            })
+    }
+    ws.onmessage = (event) => processMessage(JSON.parse(event.data))
+    ws.onclose = _ => app.status = 'disconnected'
+    ws.onerror = (error) => {
+        console.error(error.message)
+        app.status = 'disconnected'
+    }
+
+    function send(message, data = undefined) {
+        ws.send(JSON.stringify({message, data}))
+    }
+</script>
+
+<script>
+    function setAudioText(text) {
+        app.audioGraph.push(text)
+
+        if (app.audioGraph.length > 40) {
+            app.audioGraph.shift()
+        }
+    }
+
+    function processMessage(data) {
+        switch (data.message) {
+            case 'recognized':
+                app.textIntermediate = ''
+                app.text += (' ' + data.data)
+                break;
+
+            case 'intermediate-result':
+                app.textIntermediate = data.data
+                break;
+
+            case 'speech-start':
+            case 'speech-end':
+                break;
+
+            case 'speech-pause':
+                setAudioText('▄')
+                break;
+
+            case 'speech':
+                setAudioText('█')
+                app.status = 'listening'
+                break;
+
+            case 'silence':
+                setAudioText('▁')
+                app.status = 'silence'
+                break;
+
+            case 'start':
+                app.isActive = true
+                app.status = 'started'
+                break;
+
+            case 'stop':
+                app.isActive = false
+                app.status = 'stopped'
+                app.audioGraph = []
+                break;
+        }
+    }
+
+    function loadSettings() {
+        let opt = localStorage.getItem('options');
+        if (opt) {
+            opt = JSON.parse(opt);
+            for (const [k, v] of Object.entries(opt)) {
+                app.options[k] = v;
+            }
+
+            let isActive = localStorage.getItem('isActive');
+            if (isActive === '1') {
+                send('start', opt)
+            }
+        }
+    }
+</script>
+
+<script>
+
+</script>
+</body>
+</html>

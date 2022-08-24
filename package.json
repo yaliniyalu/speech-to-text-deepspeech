@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "deepspeech": "^0.9.3",
+    "dotenv": "^16.0.1",
+    "express": "^4.18.1",
+    "express-ws": "^5.0.2",
+    "naudiodon": "^2.3.6",
+    "node-vad": "^1.1.4",
+    "open": "^8.4.0",
+    "python-shell": "^3.0.1",
+    "sox-audio": "^0.3.0"
+  },
+  "scripts": {
+    "dev": "nodemon ./web-server/server.js",
+    "postinstall": "node fix-sox-windows.js",
+    "postuninstall": "node fix-sox-windows.js"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.19"
+  }
+}
